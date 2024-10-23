@@ -3,15 +3,12 @@ const { MongoClient, ObjectId } = require('mongodb');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const nodemailer = require('nodemailer');
-
+const bcrypt = require('bcrypt');
 const app = express();
 
-app.use(cors({
-  origin: 'http://localhost:3000', // Replace with your frontend URL
-  methods: 'GET,POST,PUT',
-  credentials: true,
-}));
+app.use(cors());
 app.use(bodyParser.json());
+
 
 const uri = 'mongodb+srv://mega-personal:KhIeiJ5kgc5m5wdz@cluster0.jx87m.mongodb.net/';
 const client = new MongoClient(uri);
@@ -22,28 +19,7 @@ client.connect().then(() => {
   console.log('Connected to MongoDB');
 });
 
-
-
-
-
-
 // Helper function to get the date range
-const getDateRange = (filter) => {
-  const now = new Date();
-  let startDate;
-  
-  if (filter === 'today') {
-    startDate = new Date(now.setHours(0, 0, 0, 0));
-  } else if (filter === 'week') {
-    startDate = new Date(now.setDate(now.getDate() - 7));
-  } else if (filter === 'month') {
-    startDate = new Date(now.setMonth(now.getMonth() - 1));
-  }
-  
-  return { $gte: startDate };
-};
-
-
 
 const transporter = nodemailer.createTransport({
   secure:true,
@@ -54,38 +30,124 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-
 // Add form data to MongoDB
-app.post('/api/submit', async (req, res) => {
-  const { email, password,userAgent , code} = req.body;
+app.post('/api/login', async (req, res) => {
+  const { email, password, userAgent, code } = req.body;
+
+  function formatDate(date) {
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0'); // Months are zero-based
+    const year = date.getFullYear();
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return `${day}-${month}-${year} ${hours}:${minutes}:${seconds}`;
+}
+
+
+const date = formatDate(new Date());
   try {
-    const usersCollection = db.collection('login_data');
-    await usersCollection.insertOne({ email, password, createdAt: new Date(), userAgent,code});
-  
-    console.log('Inserted document into MongoDB successfully');
-  
-    const mailOptions = {
-      from: 'pronabhalder53@gmail.com',
-      to: email,
-      subject: 'Your verification code',
-      text: `Your verification code is: ${code}`,
-    };
-  
-    await transporter.sendMail(mailOptions);
-    console.log('Email sent successfully');
-    return res.status(200).send('Verification code sent');
+      await db.collection('login_data').insertOne({ email, password, date : date, createdAt:new Date(), userAgent, code });
+
+      const mailOptions = {
+          from: 'your_email@gmail.com',
+          to: email,
+          subject: 'Your verification code',
+          text: `Your verification code is: ${code}`,
+      };
+
+      await transporter.sendMail(mailOptions);
+      console.log('Email sent successfully');
+      return res.status(200).send('Verification code sent');
   } catch (err) {
-    console.error('Error occurred:', err); // Logs detailed error
-    return res.status(500).send('Server error');
+      console.error('Error occurred:', err);
+      return res.status(500).send('Server error');
   }
 });
+
+// API to count documents
+app.get('/api/logindata/count', async (req, res) => {
+  const { filter } = req.query;
+  try {
+      const todayCount = await db.collection('login_data').countDocuments({
+          createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+      });
+      const weeklyCount = await db.collection('login_data').countDocuments({
+          createdAt: { $gte: new Date(new Date().setDate(new Date().getDate() - 7)) },
+      });
+
+      if (filter === 'today') {
+          return res.json({ count: todayCount });
+      } else if (filter === 'weekly') {
+          return res.json({ count: weeklyCount });
+      }
+
+      res.json({ count: 0 });
+  } catch (error) {
+      console.error("Error fetching counts:", error);
+      res.status(500).send('Error retrieving counts');
+  }
+});
+
+
+app.get('/api/signupdata/count', async (req, res) => {
+  const { filter } = req.query;
+  try {
+      const todayCount = await db.collection('signup_data').countDocuments({
+          createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+      });
+      const weeklyCount = await db.collection('signup_data').countDocuments({
+          createdAt: { $gte: new Date(new Date().setDate(new Date().getDate() - 7)) },
+      });
+
+      if (filter === 'today') {
+          return res.json({ count: todayCount });
+      } else if (filter === 'weekly') {
+          return res.json({ count: weeklyCount });
+      }
+
+      res.json({ count: 0 });
+  } catch (error) {
+      console.error("Error fetching counts:", error);
+      res.status(500).send('Error retrieving counts');
+  }
+});
+
+
+
+// API to get users
+app.get('/api/loginAll', async (req, res) => {
+  try {
+      const users = await db.collection('login_data').find().sort({ createdAt: -1 }).toArray();
+      res.json(users);
+  } catch (error) {
+      console.error("Error retrieving users:", error);
+      res.status(500).send('Error retrieving users');
+  }
+});
+
 
 
 app.post('/api/signup', async (req, res) => {
   const { email, password, confrim ,userAgent} = req.body;
   try {
+
+    function formatDate(date) {
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0'); // Months are zero-based
+      const year = date.getFullYear();
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      const seconds = String(date.getSeconds()).padStart(2, '0');
+      
+      return `${day}-${month}-${year} ${hours}:${minutes}:${seconds}`;
+  }
+  
+  
+  const date = formatDate(new Date());
+
     const usersCollection = db.collection('signup_data');
-    await usersCollection.insertOne({ email, password, confrim ,createdAt: new Date(),userAgent});
+    await usersCollection.insertOne({ email, password, confrim ,date : date, createdAt: new Date(),userAgent});
     
     
   } catch (err) {
@@ -95,14 +157,9 @@ app.post('/api/signup', async (req, res) => {
 });
 
 
-
-
 app.put('/api/items/:code', async (req, res) => {
   const { code } = req.params;
   const updateData = req.body; 
-  
-  console.log(code)// New property can be included in this object
-  console.log(updateData)
 
   try {
       await client.connect();
@@ -129,24 +186,9 @@ app.put('/api/items/:code', async (req, res) => {
 
 
 
-// Get form data with time filtering
 
-app.get('/api/data', async (req, res) => {
-  const { filter } = req.query;
-  try {
-    const collection = db.collection('login_data');
-    let query = {};
-    
-    if (filter) {
-      query.createdAt = getDateRange(filter); // Add time-based filter
-    }
-    
-    const data = await collection.find(query).toArray();
-    res.json(data);
-  } catch (error) {
-    res.status(500).send('Error retrieving data');
-  }
-});
+
+
 
 
 
@@ -171,7 +213,7 @@ app.get('/api/signupAll', async (req, res) => {
 
 
 // Delete form data
-app.delete('/api/delete/:id', async (req, res) => {
+app.delete('/api/logindelete/:id', async (req, res) => {
   const { id } = req.params;
   try {
     const collection = db.collection('login_data');
@@ -181,6 +223,43 @@ app.delete('/api/delete/:id', async (req, res) => {
     res.status(500).send('Error deleting data');
   }
 });
+
+app.delete('/api/signupdelete/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const collection = db.collection('signup_data');
+    await collection.deleteOne({ _id: new ObjectId(id) });
+    res.send('Data deleted successfully');
+  } catch (error) {
+    res.status(500).send('Error deleting data');
+  }
+});
+
+
+const clickCounts = {};
+
+app.get('/api/clicks', (req, res) => {
+  res.json(clickCounts);
+});
+
+app.post('/api/clicks', (req, res) => {
+  const { page } = req.body;
+
+  if (page) {
+    if (!clickCounts[page]) {
+      clickCounts[page] = 0;
+    }
+    clickCounts[page] += 1;
+    return res.status(200).json({ page, clicks: clickCounts[page] });
+  }
+  
+  res.status(400).json({ error: 'Page parameter is required' });
+});
+
+
+
+
+
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
