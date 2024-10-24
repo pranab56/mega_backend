@@ -185,13 +185,6 @@ app.put('/api/items/:code', async (req, res) => {
 
 
 
-
-
-
-
-
-
-
 app.get('/api/signupAll', async (req, res) => {
   const { filter } = req.query;
   try {
@@ -201,8 +194,7 @@ app.get('/api/signupAll', async (req, res) => {
     if (filter) {
       query.createdAt = getDateRange(filter); // Add time-based filter
     }
-    
-    const data = await collection.find(query).toArray();
+    const data = await collection.find().sort({ createdAt: -1 }).toArray();
     res.json(data);
   } catch (error) {
     res.status(500).send('Error retrieving data');
@@ -238,22 +230,48 @@ app.delete('/api/signupdelete/:id', async (req, res) => {
 
 const clickCounts = {};
 
-app.get('/api/clicks', (req, res) => {
-  res.json(clickCounts);
+app.get('/api/clicks', async (req, res) => {
+  const { page } = req.query; // Get the page query parameter if it exists
+
+  const today = new Date();
+  const startOfDay = new Date(today.setHours(0, 0, 0, 0));
+
+  try {
+    const clicksCollection = db.collection('clicks');
+    const document = await clicksCollection.findOne({ date: startOfDay });
+    if (!document || !document.pages) {
+      return res.status(404).json({ error: 'No click data found for today' });
+    }
+    if (page) {
+      const clicks = document.pages[page] || 0;
+      return res.status(200).json({ page, clicks });
+    }
+
+    return res.status(200).json({ pages: document.pages });
+  } catch (error) {
+    return res.status(500).json({ error: 'Server error' });
+  }
 });
 
-app.post('/api/clicks', (req, res) => {
+app.post('/api/clicks', async (req, res) => {
   const { page } = req.body;
-
-  if (page) {
-    if (!clickCounts[page]) {
-      clickCounts[page] = 0;
-    }
-    clickCounts[page] += 1;
-    return res.status(200).json({ page, clicks: clickCounts[page] });
+  if (!page) {
+    return res.status(400).json({ error: 'Page parameter is required' });
   }
-  
-  res.status(400).json({ error: 'Page parameter is required' });
+  const today = new Date();
+  const startOfDay = new Date(today.setHours(0, 0, 0, 0));
+  try {
+    const clicksCollection = db.collection('clicks');
+    const result = await clicksCollection.findOneAndUpdate(
+      { date: startOfDay },
+      { $inc: { [`pages.${page}`]: 1 } }, 
+      { upsert: true, returnDocument: 'after' }
+    );
+    const clicks = result.value.pages[page] || 1;
+    return res.status(200).json({ page, clicks });
+  } catch (error) {
+    return res.status(500).json({ error: 'Server error' });
+  }
 });
 
 
